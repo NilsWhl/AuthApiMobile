@@ -2,6 +2,7 @@ import express, { Request, Response, NextFunction } from "express";
 import { Prisma } from './src/generated/prisma/client';
 import { prisma } from './src/db';
 import bcrypt from 'bcrypt';
+import session from 'express-session';
 
 
 const app = express();
@@ -13,6 +14,18 @@ app.use(express.json());
 app.get("/", (req, res) => {
   res.send("Bienvenue sur l'API d'authentification");
 });
+
+app.use(session({
+  secret: process.env.SESSION_SECRET || 'secret',
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    httpOnly: true,  // Protection XSS
+    // secure: true,    // Protection HTTPS
+    // sameSite: 'lax', // Protection CSRF
+    // maxAge: 24 * 60 * 60 * 1000 // Expire après 24h
+  }
+}));
 
 app.post("/register", async (req, res, next) => {
   const { username, email, password } = req.body;
@@ -53,8 +66,30 @@ app.post("/login", async (req, res) => {
   if (!isMatch) {
     return res.status(401).json({ error: "Identifiants invalides" });
   }
+  else {
+    req.session.userId = user.id;
+    res.json({ message: "Connexion réussie !" });
+  }
+});
 
-  res.json({ message: "Connexion réussie !" });
+app.post("/logout", (req, res) => {
+  req.session.destroy(() => {
+    res.clearCookie('connect.sid'); // Supprime le cookie
+    res.json({ message: "Déconnecté" });
+  });
+});
+
+app.get("/me", async (req: Request, res: Response) => {
+  if (!req.session.userId) {
+    return res.status(401).json({ error: "Tu n'es pas connecté" });
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { id: req.session.userId },
+    select: { id: true, username: true, email: true }
+  });
+
+  res.json({ user });
 });
 
 app.use((err: any, req: Request, res: Response, next: NextFunction) => {
@@ -71,5 +106,5 @@ app.use((err: any, req: Request, res: Response, next: NextFunction) => {
 });
 
 app.listen(port, () => {
-  console.log(`Ecoute sur le port ${port}`);
+  console.log(`Ecoute sur le port ${port}\nhttp://localhost:8080`);
 });
